@@ -131,6 +131,35 @@ body{
   transition:all .3s;
 }
 
+/* combo badge */
+.combo-badge{
+  font-family:'Orbitron',monospace;font-weight:900;
+  font-size:clamp(.6rem,2.5vw,.85rem);
+  letter-spacing:.05em;
+  padding:3px 10px;
+  border-radius:2px;
+  opacity:0;
+  transform:scale(0.5) translateY(6px);
+  transition:opacity .25s, transform .35s cubic-bezier(.34,1.56,.64,1);
+  pointer-events:none;
+  white-space:nowrap;
+}
+.combo-badge.show{
+  opacity:1;
+  transform:scale(1) translateY(0);
+}
+.combo-badge.p1{background:rgba(255,77,109,0.18);border:1px solid var(--c1);color:var(--c1);}
+.combo-badge.p2{background:rgba(76,201,240,0.18);border:1px solid var(--c2);color:var(--c2);}
+/* shake animation for big combos */
+@keyframes comboshake{
+  0%,100%{transform:scale(1) translateY(0);}
+  20%{transform:scale(1.2) translateY(-3px);}
+  40%{transform:scale(0.95) translateY(1px);}
+  60%{transform:scale(1.1) translateY(-2px);}
+  80%{transform:scale(1) translateY(0);}
+}
+.combo-badge.big{ animation: comboshake .5s ease forwards; }
+
 /* canvas wrap */
 #canvas-wrap{position:relative;display:inline-block;}
 #gameCanvas{
@@ -266,6 +295,7 @@ body{
     <div class="player-info active p1-col" id="pi1">
       <div class="player-name" id="pname1">PEMAIN 1</div>
       <div class="player-score" id="pscore1">0</div>
+      <div class="combo-badge p1" id="combo1"></div>
     </div>
     <div class="turn-indicator">
       <div class="turn-label">GILIRAN</div>
@@ -275,6 +305,7 @@ body{
     <div class="player-info p2-col" id="pi2">
       <div class="player-name" id="pname2">PEMAIN 2</div>
       <div class="player-score" id="pscore2">0</div>
+      <div class="combo-badge p2" id="combo2"></div>
     </div>
   </div>
 
@@ -427,6 +458,8 @@ function animConf(){
 // ── GAME STATE ──
 let gameMode='pvp', gridSize=9, difficulty='easy';
 let board, scores, currentPlayer, sosLines, pendingMove, gameActive, isAI;
+let turnSOS = {1:0, 2:0}; // SOS count per turn for combo
+let comboTimers = {1:null, 2:null};
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -462,6 +495,8 @@ function startGame(){
   scores = {1:0,2:0};
   currentPlayer = 1;
   sosLines = [];
+  turnSOS = {1:0,2:0};
+  comboTimers = {1:null,2:null};
   flashCells = [];
   lineAnims = [];
   pendingMove = {row:null,col:null};
@@ -615,9 +650,13 @@ function placeLetter(letter){
       lineAnims.push({progress:0});
     });
     scores[currentPlayer]+=newLines.length;
+    turnSOS[currentPlayer]+=newLines.length;
     playSound('sos');
-    // don't switch
+    if(turnSOS[currentPlayer] >= 2) showCombo(currentPlayer, turnSOS[currentPlayer]);
+    // don't switch turn
   } else {
+    // turn ends — reset combo counter for this player
+    turnSOS[currentPlayer] = 0;
     currentPlayer=currentPlayer===1?2:1;
   }
 
@@ -669,8 +708,11 @@ function aiMove(){
       const col2='#4cc9f0';
       newLines.forEach(l=>{ sosLines.push({...l,color:col2}); lineAnims.push({progress:0}); });
       scores[2]+=newLines.length;
+      turnSOS[2]+=newLines.length;
       playSound('sos');
+      if(turnSOS[2] >= 2) showCombo(2, turnSOS[2]);
     } else {
+      turnSOS[2]=0;
       currentPlayer=1;
     }
 
@@ -736,6 +778,46 @@ function calcAIMove(){
     }
   }
   return best || {row:empty[0].r,col:empty[0].c,letter:'S'};
+}
+
+// ── COMBO ──
+function showCombo(player, count){
+  const el = document.getElementById('combo'+player);
+  if(!el) return;
+  // clear existing timer
+  if(comboTimers[player]) clearTimeout(comboTimers[player]);
+
+  const labels = {
+    1:'SOS!', 2:'DOUBLE!', 3:'TRIPLE!', 4:'QUAD!', 5:'PENTA!',
+    6:'HEXA!', 7:'LUCKY 7!', 8:'ULTRA!', 9:'MEGA!', 10:'GODLIKE!'
+  };
+  const label = labels[count] || `${count}x COMBO!`;
+  el.textContent = count >= 3 ? `🔥 ${label}` : label;
+  el.classList.remove('show','big');
+  void el.offsetWidth; // reflow to restart animation
+  el.classList.add('show');
+  if(count >= 3) el.classList.add('big');
+
+  // combo sound — pitch goes higher with more combos
+  if(count >= 2) playComboSound(count);
+
+  // hide after 2.5s
+  comboTimers[player] = setTimeout(()=>{
+    el.classList.remove('show','big');
+  }, 2500);
+}
+
+function playComboSound(count){
+  const baseFreq = 400 + (count * 80);
+  [0, 0.1, 0.2].forEach((t, i) => {
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.connect(g); g.connect(AC.destination);
+    o.type = 'triangle';
+    o.frequency.value = baseFreq * [1, 1.25, 1.5][i];
+    g.gain.setValueAtTime(0.2, AC.currentTime + t);
+    g.gain.exponentialRampToValueAtTime(0.001, AC.currentTime + t + 0.2);
+    o.start(AC.currentTime + t); o.stop(AC.currentTime + t + 0.25);
+  });
 }
 
 // ── UI ──
