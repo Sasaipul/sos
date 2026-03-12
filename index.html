@@ -139,16 +139,23 @@ body{
   box-shadow:0 0 40px rgba(0,0,0,0.5);
 }
 
-/* selector popup */
+/* selector popup — fixed center of screen to avoid accidental taps */
 #selector{
-  position:absolute;display:none;
+  position:fixed;display:none;
+  left:50%;top:50%;transform:translate(-50%,-50%);
   background:rgba(5,10,20,0.97);
-  border:1px solid rgba(255,255,255,0.15);
-  padding:8px;gap:8px;
-  box-shadow:0 8px 32px rgba(0,0,0,0.6);
-  z-index:100;pointer-events:auto;
-  backdrop-filter:blur(10px);
+  border:1px solid rgba(255,255,255,0.2);
+  padding:16px 20px;gap:12px;
+  box-shadow:0 0 0 9999px rgba(0,0,0,0.45), 0 8px 40px rgba(0,0,0,0.8);
+  z-index:200;pointer-events:auto;
+  backdrop-filter:blur(12px);
+  flex-direction:column;align-items:center;
 }
+#selector-hint{
+  font-family:'Orbitron',monospace;font-size:.55rem;letter-spacing:.2em;
+  color:rgba(224,232,255,0.4);text-align:center;margin-bottom:4px;
+}
+#selector-btns{display:flex;gap:12px;}
 .sel-btn{
   width:clamp(52px,14vw,64px);height:clamp(52px,14vw,64px);
   font-family:'Orbitron',monospace;font-size:clamp(1.1rem,4vw,1.4rem);font-weight:900;
@@ -244,9 +251,9 @@ body{
   <div style="width:100%;display:flex;flex-direction:column;gap:6px">
     <div style="font-size:.6rem;letter-spacing:.2em;color:rgba(224,232,255,0.3);text-align:center">UKURAN PAPAN</div>
     <div class="size-btns" style="justify-content:center">
-      <button class="size-btn" id="s6" onclick="selectSize(6)">6×6</button>
-      <button class="size-btn active" id="s8" onclick="selectSize(8)">8×8</button>
-      <button class="size-btn" id="s10" onclick="selectSize(10)">10×10</button>
+      <button class="size-btn" id="s7" onclick="selectSize(7)">7×7</button>
+      <button class="size-btn active" id="s9" onclick="selectSize(9)">9×9</button>
+      <button class="size-btn" id="s15" onclick="selectSize(15)">15×15</button>
     </div>
   </div>
 
@@ -274,8 +281,12 @@ body{
   <div id="canvas-wrap">
     <canvas id="gameCanvas"></canvas>
     <div id="selector" style="display:none">
-      <button class="sel-btn s-btn" onclick="placeLetter('S')">S</button>
-      <button class="sel-btn o-btn" onclick="placeLetter('O')">O</button>
+      <div id="selector-hint">PILIH HURUF</div>
+      <div id="selector-btns">
+        <button class="sel-btn s-btn" onclick="placeLetter('S')">S</button>
+        <button class="sel-btn o-btn" onclick="placeLetter('O')">O</button>
+      </div>
+      <button onclick="cancelSelector()" style="font-family:'Rajdhani',sans-serif;font-size:.65rem;letter-spacing:.1em;padding:6px 20px;border:1px solid rgba(255,255,255,0.1);background:transparent;color:rgba(224,232,255,0.35);cursor:pointer;margin-top:4px;">BATAL</button>
     </div>
   </div>
 
@@ -414,7 +425,7 @@ function animConf(){
 }
 
 // ── GAME STATE ──
-let gameMode='pvp', gridSize=8, difficulty='easy';
+let gameMode='pvp', gridSize=9, difficulty='easy';
 let board, scores, currentPlayer, sosLines, pendingMove, gameActive, isAI;
 
 const canvas = document.getElementById('gameCanvas');
@@ -440,7 +451,7 @@ function selectDiff(d){
 }
 function selectSize(s){
   gridSize=s;
-  [6,8,10].forEach(x=>document.getElementById('s'+x).classList.toggle('active',x===s));
+  [7,9,15].forEach(x=>document.getElementById('s'+x).classList.toggle('active',x===s));
   playSound('click');
 }
 
@@ -550,10 +561,18 @@ canvas.addEventListener('touchstart',(e)=>{
   canvas.dispatchEvent(new MouseEvent('click',{clientX:touch.clientX,clientY:touch.clientY,bubbles:true}));
 },{passive:false});
 
+function cancelSelector(){
+  selector.style.display='none';
+  pendingMove={row:null,col:null};
+}
+
+// prevent accidental tap — ignore clicks too soon after selector shown
+let selectorShownAt = 0;
+
 canvas.addEventListener('click',(e)=>{
   resumeAC();
   if(!gameActive) return;
-  if(isAI && currentPlayer===2) return; // AI's turn
+  if(isAI && currentPlayer===2) return;
 
   const rect=canvas.getBoundingClientRect();
   const scaleX=canvas.width/rect.width, scaleY=canvas.height/rect.height;
@@ -564,19 +583,11 @@ canvas.addEventListener('click',(e)=>{
 
   if(row>=0&&row<gridSize&&col>=0&&col<gridSize&&board[row][col]===''){
     pendingMove={row,col};
-    selector.style.display='flex';
-    // position
-    const cr=canvas.getBoundingClientRect();
-    const btnW = 150, btnH = 70; // approx selector size
-    // Position relative to canvas display size
-    let lx = (col*cs+cs/2)*cr.width/canvas.width - btnW/2;
-    let ly = (row*cs)*cr.height/canvas.height - btnH - 6;
-    // clamp inside canvas
-    lx = Math.max(4, Math.min(lx, cr.width - btnW - 4));
-    ly = Math.max(4, ly);
-    // if too close to top, show below
-    if(ly < 4) ly = (row*cs+cs)*cr.height/canvas.height + 6;
-    selector.style.left=lx+'px'; selector.style.top=ly+'px';
+
+    // tampilkan di tengah layar setelah 150ms — cegah salah tekan
+    selector.style.display='none';
+    selectorShownAt = Date.now();
+    setTimeout(()=>{ selector.style.display='flex'; }, 150);
     playSound('click');
   } else {
     selector.style.display='none';
@@ -586,6 +597,8 @@ canvas.addEventListener('click',(e)=>{
 // ── PLACE LETTER ──
 function placeLetter(letter){
   if(pendingMove.row===null) return;
+  // guard: ignore if selector was shown less than 120ms ago (accidental tap)
+  if(Date.now() - selectorShownAt < 120) return;
   resumeAC();
   const {row,col}=pendingMove;
   board[row][col]=letter;
