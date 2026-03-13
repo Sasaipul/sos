@@ -468,6 +468,7 @@ const selector = document.getElementById('selector');
 // cell flash animation
 let flashCells = []; // {r,c,alpha}
 let lineAnims = []; // {line, progress}
+let hoveredCell = {r:-1, c:-1};
 
 // ── SETUP ──
 function selectMode(m){
@@ -499,6 +500,7 @@ function startGame(){
   comboTimers = {1:null,2:null};
   flashCells = [];
   lineAnims = [];
+  hoveredCell = {r:-1,c:-1};
   pendingMove = {row:null,col:null};
   gameActive = true;
   isAI = gameMode==='pvc';
@@ -546,6 +548,32 @@ function drawBoard(){
     ctx.beginPath(); ctx.moveTo(0,i*cs); ctx.lineTo(canvas.width,i*cs); ctx.stroke();
   }
 
+  // hover highlight
+  const cs2 = cellSize();
+  if(hoveredCell.r>=0 && board[hoveredCell.r] && board[hoveredCell.r][hoveredCell.c]===''){
+    const hc = currentPlayer===1 ? 'rgba(255,77,109,' : 'rgba(76,201,240,';
+    // outer glow border
+    ctx.strokeStyle = currentPlayer===1 ? 'rgba(255,77,109,0.6)' : 'rgba(76,201,240,0.6)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(hoveredCell.c*cs2+1, hoveredCell.r*cs2+1, cs2-2, cs2-2);
+    // inner fill
+    ctx.fillStyle = hc+'0.08)';
+    ctx.fillRect(hoveredCell.c*cs2+1, hoveredCell.r*cs2+1, cs2-2, cs2-2);
+    // corner accents
+    const corner = Math.min(cs2*0.25, 10);
+    ctx.strokeStyle = currentPlayer===1 ? 'rgba(255,77,109,0.9)' : 'rgba(76,201,240,0.9)';
+    ctx.lineWidth = 2;
+    const hx = hoveredCell.c*cs2, hy = hoveredCell.r*cs2;
+    // top-left
+    ctx.beginPath(); ctx.moveTo(hx+2,hy+2+corner); ctx.lineTo(hx+2,hy+2); ctx.lineTo(hx+2+corner,hy+2); ctx.stroke();
+    // top-right
+    ctx.beginPath(); ctx.moveTo(hx+cs2-2-corner,hy+2); ctx.lineTo(hx+cs2-2,hy+2); ctx.lineTo(hx+cs2-2,hy+2+corner); ctx.stroke();
+    // bottom-left
+    ctx.beginPath(); ctx.moveTo(hx+2,hy+cs2-2-corner); ctx.lineTo(hx+2,hy+cs2-2); ctx.lineTo(hx+2+corner,hy+cs2-2); ctx.stroke();
+    // bottom-right
+    ctx.beginPath(); ctx.moveTo(hx+cs2-2-corner,hy+cs2-2); ctx.lineTo(hx+cs2-2,hy+cs2-2); ctx.lineTo(hx+cs2-2,hy+cs2-2-corner); ctx.stroke();
+  }
+
   // flash cells
   flashCells.forEach(f=>{
     ctx.fillStyle=`rgba(255,255,150,${f.alpha*0.18})`;
@@ -590,6 +618,29 @@ function drawBoard(){
 }
 
 // ── CANVAS CLICK ──
+canvas.addEventListener('mousemove',(e)=>{
+  if(!gameActive) return;
+  if(isAI && currentPlayer===2) return;
+  const rect=canvas.getBoundingClientRect();
+  const scaleX=canvas.width/rect.width, scaleY=canvas.height/rect.height;
+  const x=(e.clientX-rect.left)*scaleX;
+  const y=(e.clientY-rect.top)*scaleY;
+  const cs=cellSize();
+  const col=Math.floor(x/cs), row=Math.floor(y/cs);
+  if(row>=0&&row<gridSize&&col>=0&&col<gridSize&&board[row][col]===''){
+    if(hoveredCell.r!==row||hoveredCell.c!==col){
+      hoveredCell={r:row,c:col};
+      drawBoard();
+    }
+  } else {
+    if(hoveredCell.r!==-1){ hoveredCell={r:-1,c:-1}; drawBoard(); }
+  }
+});
+
+canvas.addEventListener('mouseleave',()=>{
+  hoveredCell={r:-1,c:-1}; drawBoard();
+});
+
 canvas.addEventListener('touchstart',(e)=>{
   e.preventDefault();
   const touch = e.touches[0];
