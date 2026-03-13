@@ -80,9 +80,26 @@ body{
   padding:7px 14px;
   font-family:'Rajdhani',sans-serif;font-size:.75rem;font-weight:700;letter-spacing:.1em;
   border:1px solid var(--border);background:transparent;
-  color:rgba(224,232,255,0.5);cursor:pointer;transition:all .2s;
+  color:rgba(224,232,255,0.4);cursor:pointer;transition:all .25s;
+  -webkit-tap-highlight-color:transparent;
 }
-.diff-btn.active{border-color:var(--c1);color:var(--c1);background:rgba(255,77,109,0.08);}
+/* idle colors per difficulty */
+#d-easy  { border-color:rgba(39,174,96,0.35);  color:#27ae60; }
+#d-medium{ border-color:rgba(241,196,15,0.35);  color:#f1c40f; }
+#d-hard  { border-color:rgba(231,76,60,0.35);   color:#e74c3c; }
+#d-hell  { border-color:rgba(255,100,0,0.35);   color:#ff6600; }
+
+/* active (selected) glow per difficulty */
+#d-easy.active  { border-color:#27ae60; color:#fff; background:rgba(39,174,96,0.15);  box-shadow:0 0 14px rgba(39,174,96,0.35); }
+#d-medium.active{ border-color:#f1c40f; color:#fff; background:rgba(241,196,15,0.12); box-shadow:0 0 14px rgba(241,196,15,0.35); }
+#d-hard.active  { border-color:#e74c3c; color:#fff; background:rgba(231,76,60,0.15);  box-shadow:0 0 14px rgba(231,76,60,0.35); }
+#d-hell.active  { border-color:#ff6600; color:#fff; background:rgba(255,80,0,0.18);   box-shadow:0 0 18px rgba(255,80,0,0.5); }
+
+/* hover */
+#d-easy:hover  { background:rgba(39,174,96,0.08); }
+#d-medium:hover{ background:rgba(241,196,15,0.08); }
+#d-hard:hover  { background:rgba(231,76,60,0.08); }
+#d-hell:hover  { background:rgba(255,80,0,0.08); }
 #diff-row{display:none;flex-direction:column;align-items:center;gap:8px;width:100%;}
 #diff-row.show{display:flex;}
 #diff-row label{font-size:.65rem;letter-spacing:.2em;color:rgba(224,232,255,0.35);}
@@ -274,6 +291,7 @@ body{
       <button class="diff-btn active" id="d-easy" onclick="selectDiff('easy')">MUDAH</button>
       <button class="diff-btn" id="d-medium" onclick="selectDiff('medium')">SEDANG</button>
       <button class="diff-btn" id="d-hard" onclick="selectDiff('hard')">SULIT</button>
+      <button class="diff-btn" id="d-hell" onclick="selectDiff('hell')">😈 NERAKA</button>
     </div>
   </div>
 
@@ -480,7 +498,7 @@ function selectMode(m){
 }
 function selectDiff(d){
   difficulty=d;
-  ['easy','medium','hard'].forEach(x=>document.getElementById('d-'+x).classList.toggle('active',x===d));
+  ['easy','medium','hard','hell'].forEach(x=>document.getElementById('d-'+x).classList.toggle('active',x===d));
   playSound('click');
 }
 function selectSize(s){
@@ -511,7 +529,7 @@ function startGame(){
 
   // update names
   document.getElementById('pname1').textContent = 'PEMAIN 1';
-  document.getElementById('pname2').textContent = isAI ? `AI (${difficulty.toUpperCase()})` : 'PEMAIN 2';
+  document.getElementById('pname2').textContent = isAI ? (difficulty==='hell' ? '😈 AI NERAKA' : `AI (${difficulty.toUpperCase()})`) : 'PEMAIN 2';
 
   document.getElementById('menu').style.display='none';
   document.getElementById('game').classList.add('show');
@@ -746,7 +764,7 @@ function aiMove(){
   if(!gameActive) return;
   document.getElementById('ai-thinking').classList.add('show');
 
-  const delay = difficulty==='easy'?400:difficulty==='medium'?600:900;
+  const delay = difficulty==='easy'?400:difficulty==='medium'?600:difficulty==='hard'?900:1200;
   setTimeout(()=>{
     document.getElementById('ai-thinking').classList.remove('show');
     const move = calcAIMove();
@@ -779,27 +797,30 @@ function calcAIMove(){
     for(let c=0;c<gridSize;c++)
       if(board[r][c]==='') empty.push({r,c});
 
+  // ── EASY: random ──
   if(difficulty==='easy'){
-    // random
     const cell=empty[Math.floor(Math.random()*empty.length)];
     return {row:cell.r,col:cell.c,letter:Math.random()<0.5?'S':'O'};
   }
 
-  // Try to find immediate SOS for AI
+  // ── MEDIUM/HARD/HELL: cari SOS langsung dulu ──
+  // Prioritaskan yang menghasilkan SOS terbanyak
+  let bestImmediate=null, bestImmediateScore=0;
   for(const {r,c} of empty){
     for(const l of ['S','O']){
       board[r][c]=l;
-      if(checkSOS(r,c).length>0){ board[r][c]=''; return {row:r,col:c,letter:l}; }
+      const s=checkSOS(r,c).length;
       board[r][c]='';
+      if(s>bestImmediateScore){ bestImmediateScore=s; bestImmediate={row:r,col:c,letter:l}; }
     }
   }
+  if(bestImmediate) return bestImmediate;
 
+  // ── MEDIUM: blok pemain + random ──
   if(difficulty==='medium'){
-    // block player from scoring
     for(const {r,c} of empty){
       for(const l of ['S','O']){
         board[r][c]=l;
-        // simulate if player could score here
         let wouldScore=false;
         for(const {r:er,c:ec} of empty){
           if(er===r&&ec===c) continue;
@@ -815,20 +836,59 @@ function calcAIMove(){
     return {row:cell.r,col:cell.c,letter:Math.random()<0.5?'S':'O'};
   }
 
-  // HARD — score maximizing
-  let best=null, bestScore=-Infinity;
-  const sample = empty.length>20 ? empty.sort(()=>Math.random()-.5).slice(0,20) : empty;
-  for(const {r,c} of sample){
+  // ── HARD: scan semua kotak, cari nilai terbaik ──
+  if(difficulty==='hard'){
+    let best=null, bestScore=-Infinity;
+    for(const {r,c} of empty){
+      for(const l of ['S','O']){
+        board[r][c]=l;
+        const s=checkSOS(r,c).length;
+        board[r][c]='';
+        const val = s>0 ? s*10 : Math.random()*2;
+        if(val>bestScore){ bestScore=val; best={row:r,col:c,letter:l}; }
+      }
+    }
+    return best||{row:empty[0].r,col:empty[0].c,letter:'S'};
+  }
+
+  // ── HELL: 2-ply lookahead — pilih langkah yang setup SOS berikutnya juga ──
+  // Skor = SOS sekarang + potensi SOS giliran berikutnya - ancaman pemain
+  let hellBest=null, hellScore=-Infinity;
+  for(const {r,c} of empty){
     for(const l of ['S','O']){
       board[r][c]=l;
-      const s=checkSOS(r,c).length;
+      const immediate = checkSOS(r,c).length;
+
+      // Hitung setup: berapa SOS yang bisa AI buat di giliran berikutnya
+      let setupScore=0;
+      for(const {r:nr,c:nc} of empty){
+        if(nr===r&&nc===c) continue;
+        for(const nl of ['S','O']){
+          board[nr][nc]=nl;
+          setupScore+=checkSOS(nr,nc).length;
+          board[nr][nc]='';
+        }
+      }
+
+      // Hitung ancaman: berapa SOS yang bisa pemain buat setelah langkah ini
+      let threatScore=0;
+      for(const {r:tr,c:tc} of empty){
+        if(tr===r&&tc===c) continue;
+        for(const tl of ['S','O']){
+          board[tr][tc]=tl;
+          threatScore+=checkSOS(tr,tc).length;
+          board[tr][tc]='';
+        }
+      }
+
       board[r][c]='';
-      // also try to block
-      const val = s>0 ? s*10 : (Math.random()*2);
-      if(val>bestScore){ bestScore=val; best={row:r,col:c,letter:l}; }
+
+      // Formula neraka: utamakan skor langsung, bonus setup, kurangi ancaman
+      const totalScore = (immediate*100) + (setupScore*3) - (threatScore*5);
+      if(totalScore>hellScore){ hellScore=totalScore; hellBest={row:r,col:c,letter:l}; }
     }
   }
-  return best || {row:empty[0].r,col:empty[0].c,letter:'S'};
+  return hellBest||{row:empty[0].r,col:empty[0].c,letter:'S'};
 }
 
 // ── COMBO ──
